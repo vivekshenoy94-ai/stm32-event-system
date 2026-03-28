@@ -379,7 +379,7 @@ GPIO_PinState HAL_GPIO_ReadPin(GPIO_TypeDef* GPIOx, uint16_t GPIO_Pin)
   /* Check the parameters */
   assert_param(IS_GPIO_PIN(GPIO_Pin));
 
-  if((GPIOx->IDR & GPIO_Pin) == (uint32_t)GPIO_PIN_RESET)
+  if((GPIOx->IDR & GPIO_Pin) != (uint32_t)GPIO_PIN_RESET)
   {
     bitstatus = GPIO_PIN_SET;
   }

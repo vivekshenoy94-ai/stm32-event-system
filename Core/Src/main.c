@@ -27,6 +27,12 @@
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
 
+/* Defines different Button States */
+typedef enum{
+	IDLE,
+	DEBOUNCING
+} ButtonState_t;
+
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
@@ -45,7 +51,8 @@ TIM_HandleTypeDef htim2;
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
-
+/* Variable to hold the state of the button transitions*/
+volatile ButtonState_t state =IDLE;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -59,6 +66,47 @@ static void MX_TIM2_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
+/**
+  * @brief  HAL Callback for the EXTI Trigger
+  *         1. Performs Button state transitions
+  *         2. Starts the timer based on the Button state.
+  * @retval void
+  */
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+{
+	if(GPIO_Pin == GPIO_PIN_13){
+		if(state == IDLE){
+			state = DEBOUNCING;
+			//__HAL_TIM_SET_COUNTER(&htim2,0);
+
+			HAL_TIM_Base_Start_IT(&htim2);//Start Timer
+		}
+
+	}
+}
+
+/**
+  * @brief  HAL Callback when the timer is elapsed which was started
+  *         in HAL_GPIO_EXTI_Callback
+  *         1. Resets the timer
+  *         2. Toggles the LED based on button state
+  * @retval void
+  */
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
+	if(htim->Instance == TIM2){
+		HAL_TIM_Base_Stop_IT(&htim2);//stop timer
+		if(state == DEBOUNCING)
+		{
+			if(HAL_GPIO_ReadPin(GPIOC,GPIO_PIN_13) == GPIO_PIN_SET)
+			{
+				HAL_GPIO_TogglePin(GPIOA,GPIO_PIN_5);
+			}
+			state =IDLE;
+		}
+
+	}
+}
 
 /* USER CODE END 0 */
 
@@ -112,44 +160,6 @@ int main(void)
   * @brief System Clock Configuration
   * @retval None
   */
-
-typedef enum{
-	IDLE,
-	DEBOUNCING
-} ButtonState_t;
-
-volatile ButtonState_t state =IDLE;
-
-
-
-void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
-{
-	if(GPIO_Pin == GPIO_PIN_13){
-		if(state == IDLE){
-			state = DEBOUNCING;
-			//__HAL_TIM_SET_COUNTER(&htim2,0);
-
-			HAL_TIM_Base_Start_IT(&htim2);//Start Timer
-		}
-
-	}
-}
-
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
-	if(htim->Instance == TIM2){
-		HAL_TIM_Base_Stop_IT(&htim2);//stop timer
-		if(state == DEBOUNCING)
-		{
-			if(HAL_GPIO_ReadPin(GPIOC,GPIO_PIN_13) == GPIO_PIN_RESET)
-			{
-				HAL_GPIO_TogglePin(GPIOA,GPIO_PIN_5);
-			}
-			state =IDLE;
-		}
-
-	}
-}
-
 
 void SystemClock_Config(void)
 {
