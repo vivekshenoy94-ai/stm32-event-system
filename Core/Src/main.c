@@ -29,15 +29,20 @@
 
 /* Defines different Button States */
 typedef enum{
-	IDLE,
-	DEBOUNCING
+	BUTTON_IDLE,
+	BUTTON_DEBOUNCING,
+	BUTTON_PRESSED
 } ButtonState_t;
 
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+#define INPUT_GROUP GPIOC
+#define BUTTON_SWITCH GPIO_PIN_13
 
+#define OUTPUT_GROUP GPIOA
+#define LED GPIO_PIN_5
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -52,7 +57,8 @@ UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
 /* Variable to hold the state of the button transitions*/
-volatile ButtonState_t state =IDLE;
+volatile ButtonState_t state =BUTTON_IDLE;
+volatile uint8_t expected_state;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -75,12 +81,17 @@ static void MX_TIM2_Init(void);
   */
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
-	if(GPIO_Pin == GPIO_PIN_13){
-		if(state == IDLE){
-			state = DEBOUNCING;
-			//__HAL_TIM_SET_COUNTER(&htim2,0);
-
-			HAL_TIM_Base_Start_IT(&htim2);//Start Timer
+	if(GPIO_Pin == BUTTON_SWITCH)
+	{
+		/*Trigger the timer only if the state is idle*/
+		if(state == BUTTON_IDLE)
+		{
+			expected_state = HAL_GPIO_ReadPin(INPUT_GROUP,BUTTON_SWITCH);
+			/*Clear the timer*/
+			__HAL_TIM_SET_COUNTER(&htim2,0);
+			/*Start timer*/
+			HAL_TIM_Base_Start_IT(&htim2);
+			state = BUTTON_DEBOUNCING;
 		}
 
 	}
@@ -94,17 +105,44 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
   * @retval void
   */
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
-	if(htim->Instance == TIM2){
-		HAL_TIM_Base_Stop_IT(&htim2);//stop timer
-		if(state == DEBOUNCING)
+	if(htim->Instance == TIM2)
+	{
+		/*stop timer*/
+		HAL_TIM_Base_Stop_IT(&htim2);
+
+		/*If the state is debounce then
+		 *  evaluate the pin to set the Button state accordingly*/
+		if(state == BUTTON_DEBOUNCING)
 		{
-			if(HAL_GPIO_ReadPin(GPIOC,GPIO_PIN_13) == GPIO_PIN_SET)
+			/* Read the pin to be still pressed after debounce time*/
+			if(HAL_GPIO_ReadPin(INPUT_GROUP,BUTTON_SWITCH) == expected_state)
 			{
-				HAL_GPIO_TogglePin(GPIOA,GPIO_PIN_5);
+
+				state = BUTTON_PRESSED;
 			}
-			state =IDLE;
+			else
+			{
+				/*Ignore the event since it was not valid*/
+				state = BUTTON_IDLE;
+			}
+
 		}
 
+	}
+}
+
+
+/**
+  * @brief  Toggles the LED based on the Button State
+  * @retval void
+  */
+void APP_LEDToggle()
+{
+	/*Toggle the LED if the press on the button is detected*/
+	if(state == BUTTON_PRESSED)
+	{
+		HAL_GPIO_TogglePin(OUTPUT_GROUP,LED);
+		state = BUTTON_IDLE;
 	}
 }
 
@@ -149,9 +187,11 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-    /* USER CODE END WHILE */
 
+    /* USER CODE END WHILE */
+	APP_LEDToggle();
     /* USER CODE BEGIN 3 */
+
   }
   /* USER CODE END 3 */
 }
@@ -160,7 +200,6 @@ int main(void)
   * @brief System Clock Configuration
   * @retval None
   */
-
 void SystemClock_Config(void)
 {
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
@@ -305,7 +344,7 @@ static void MX_GPIO_Init(void)
 
   /*Configure GPIO pin : PC13 */
   GPIO_InitStruct.Pin = GPIO_PIN_13;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
