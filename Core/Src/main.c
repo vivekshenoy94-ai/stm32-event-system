@@ -31,14 +31,17 @@
 typedef enum{
 	BUTTON_IDLE,
 	BUTTON_DEBOUNCING,
-	BUTTON_PRESSED
+	BUTTON_FIRST_PRESS,
+	BUTTON_WAIT_DOUBLE,
+	BUTTON_SECOND_PRESS
 } ButtonState_t;
 
 /* Defines different Button Events */
 typedef enum{
 	EVENT_NONE,
-	EVENT_SHORT_PRESS,
-	EVENT_LONG_PRESS
+	EVENT_SINGLE_CLICK,
+	EVENT_DOUBLE_CLICK,
+	EVENT_LONG_CLICK
 } ButtonEvent_t;
 
 /* USER CODE END PTD */
@@ -70,8 +73,14 @@ volatile ButtonState_t button_state =BUTTON_IDLE;
 volatile ButtonEvent_t button_event =EVENT_NONE;
 /* Variable to hold the start time when the button is first pressed*/
 uint32_t press_start_time=0;
+/* Variable to hold the start time when the button is first pressed*/
+uint32_t press2_start_time=0;
 /* Variable to hold the overall duration of the button press*/
 uint32_t press_duration=0;
+/* Variable to hold the overall duration of the button press*/
+uint32_t press2_duration=0;
+/* Variable to hold the overall duration of the button press*/
+uint32_t release_time=0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -88,8 +97,9 @@ static void APP_LEDOutput();
 
 /**
   * @brief  HAL Callback for the EXTI Trigger
-  *         1. Performs Button state transitions
+  *         1. Performs Button state transitions.
   *         2. Starts the timer based on the Button state.
+  *         3. Single and Double click Evaluated.
   * @retval void
   */
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
@@ -109,23 +119,63 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 
 				button_state = BUTTON_DEBOUNCING;
 			}
+			/*Capture the timestamp to check for seond press duration*/
+			else if(button_state == BUTTON_WAIT_DOUBLE)
+			{
+				press2_start_time = HAL_GetTick();
+				button_state = BUTTON_SECOND_PRESS;
+			}
+			else
+			{
+				/*Do Nothing for any other state*/
+			}
 		}
 		else
 		{
-			if(button_state == BUTTON_PRESSED)
+			if(button_state == BUTTON_FIRST_PRESS)
 			{
 				/*Calculate the duration*/
 				press_duration = HAL_GetTick()-press_start_time;
+
 				/* Button pressed for 2s , then its considered long else short press. */
 				if(press_duration>2000)
 				{
-					button_event = EVENT_LONG_PRESS;
+					button_event = EVENT_LONG_CLICK;
+					button_state = BUTTON_IDLE;
 				}
 				else
 				{
-					button_event = EVENT_SHORT_PRESS;
+					release_time = HAL_GetTick();
+					button_state = BUTTON_WAIT_DOUBLE;
+
 				}
-				button_state = BUTTON_IDLE;
+				press_start_time=0;
+
+			}
+			else if(button_state == BUTTON_SECOND_PRESS)
+			{
+				/*Calculate the second click duration*/
+				press2_duration = HAL_GetTick()-press2_start_time;
+
+				/* Button pressed for 2s , then its considered long else double click */
+				if(press2_duration>2000)
+				{
+
+					button_event = EVENT_LONG_CLICK;
+					button_state = BUTTON_IDLE;
+
+				}
+				else
+				{
+					button_event = EVENT_DOUBLE_CLICK;
+					button_state = BUTTON_IDLE;
+				}
+				press2_start_time = 0;
+
+			}
+			else
+			{
+
 			}
 		}
 
@@ -154,7 +204,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 			if(HAL_GPIO_ReadPin(INPUT_GROUP,BUTTON_SWITCH) == BUTTON_ACTIVE)
 			{
 
-				button_state = BUTTON_PRESSED;
+				button_state = BUTTON_FIRST_PRESS;
 				/*Capture the button press time*/
 				press_start_time = HAL_GetTick();
 			}
@@ -172,23 +222,33 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 
 /**
   * @brief  Toggles/Blink the LED based on the Button State
-  *         SHORT PRESS : Toggle Once 
-  *         LONG PRESS : Keep the LED in BLINK state
+  *         SINGLE CLICK : Toggle Once
+  *         DOUBLE CLICK : Toggle twice
+  *         LONG CLICK : Keep the LED in BLINK state
   * @retval void
   */
 static void APP_LEDOutput()
 {
 
 	static uint32_t last_toggle=0;
+	static uint8_t toggle_counter =0;
 
-	/*Toggle the LED if the press on the button is short*/
-	if(button_event == EVENT_SHORT_PRESS)
+	/*STOP waiting for the second click after 1s and consider it to be single click*/
+	if((button_state==BUTTON_WAIT_DOUBLE)&&((HAL_GetTick()-release_time)>1000))
+	{
+		button_event = EVENT_SINGLE_CLICK;
+		button_state = BUTTON_IDLE;
+		release_time=0;
+	}
+
+	/*Toggle the LED if its a single click*/
+	if(button_event == EVENT_SINGLE_CLICK)
 	{
 		HAL_GPIO_TogglePin(OUTPUT_GROUP,LED);
 		button_event = EVENT_NONE;
 	}
-	/*Blink the LED if the press on the button is long*/
-	else if(button_event == EVENT_LONG_PRESS)
+	/*Blink the LED if its a long click*/
+	else if(button_event == EVENT_LONG_CLICK)
 	{
 		/*Blink => Toggle with delay(500ms) */
 		if(HAL_GetTick()-last_toggle > 500)
@@ -197,9 +257,25 @@ static void APP_LEDOutput()
 			last_toggle = HAL_GetTick();
 		}
 	}
+	/*Toggle the LED twice with delay of 1s if its a double click*/
+	else if(button_event == EVENT_DOUBLE_CLICK)
+	{
+		if(HAL_GetTick()-last_toggle > 1000)
+		{
+			HAL_GPIO_TogglePin(OUTPUT_GROUP,LED);
+			last_toggle = HAL_GetTick();
+			toggle_counter++;
+		}
+		if(toggle_counter>1)
+		{
+			button_event = EVENT_NONE;
+			last_toggle=0;
+			toggle_counter=0;
+		}
+	}
 	else
 	{
-
+		/*There is no event so do nothing*/
 	}
 
 }
