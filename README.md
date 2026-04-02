@@ -1,4 +1,4 @@
-# STM32 Button Event System (Debounce + Multi-Press Handling)
+# STM32 Button Event System (Multi-Press Event Driven Architecture)
 
 ------------------------------------------------------------------------
 
@@ -13,6 +13,10 @@ using:
 
 The system separates **detection, validation, and action**, ensuring
 reliable and scalable behavior.
+
+Additionally, the design introduces a modular button driver abstraction and
+state-based application control, enabling clean separation between input handling
+and output behavior.
 
 ## Hardware Setup
 - Button → PC13 (EXTI Rising & Falling Edge)
@@ -89,7 +93,7 @@ control flow, and architectural clarity.
 - Non-blocking behavior for continuous actions
 
 
-### Version 4 — Multi-Press Event Handling with Double Click Support (Current)
+### Version 4 — Multi-Press Event Handling with Double Click Support
 
 - Added event-based behavior:
   - EVENT_DOUBLE_CLICK
@@ -128,10 +132,70 @@ control flow, and architectural clarity.
 - Eliminates premature double-click detection  
 - Priority-based event resolution  
 - Scalable foundation for multi-click and multi-button systems
+
+
+### Version 5 — Modular Driver Abstraction with State-Based Output Handling (Current)
+
+- Introduced button driver abstraction:
   
+  - button.c / button.h
+  - Encapsulates FSM, debounce, and event generation
+
+- Application layer redesigned to separate:
+  
+  - Event handling (input interpretation)
+  - State management (system behavior)
+  - Output execution (LED control)
+
+- Introduced state-based output control:
+  
+  - LED_IDLE
+  - LED_BLINK
+
+- Introduced action flags for transient behavior:
+  
+  - Single toggle
+  - Double toggle
+
+- Implemented state override mechanism:
+  
+  - Any new user input exits ongoing states (e.g., blinking)
+
+#### System Behavior
+
+- Short Click
+  → Exit BLINK (if active)
+  → Toggle LED once
+
+- Double Click
+  → Exit BLINK (if active)
+  → Toggle LED twice
+
+- Long Click
+  → Enter BLINK state (continuous non-blocking toggle)
+
+#### Improvements
+
+- Clear separation of:
+  
+  - Driver (input handling)
+  - Application (decision making)
+  - Output (execution)
+
+- Proper distinction between:
+  
+  - Event (instant trigger)
+  - State (continuous behavior)
+
+- Eliminates state overwrite issues
+
+- Ensures all states have valid exit paths
+
+- Improves scalability for multiple inputs and outputs
+
+---
 ## Key Features
 - Interrupt-driven button handling (EXTI)
-- Timer-based debounce handling
 - State machine-based signal validation
 - Event-driven action handling
 - Clean separation of ISR and main loop
@@ -141,73 +205,64 @@ control flow, and architectural clarity.
 - Multi-stage FSM handling  
 - Non-blocking LED behavior
 - Deterministic and stable behavior
+- Scalable multi-button design
 
 ## System Architecture
 EXTI → Detect edge\
 ↓\
-Timer → Debounce validation\
+Button Driver (FSM) → Event Generation\
 ↓\
-State Machine → Signal correctness\
+Application Layer → State Update\
 ↓\
-Event Generation (on release)\
-↓\
-Main Loop → Action execution
+Output Layer → Action Execution
 
 ## System Flow
 Button Press (PC13)\
-→ EXTI Interrupt Triggered\
-→ Start Debounce Timer\
-→ Timer ISR validates press\
-→ State = BUTTON_PRESSED\
+→ EXTI Interrupt Triggered
+→ FSM updates state
 → Capture press_start_time
 
 Button Release\
-→ Measure press_duration\
-→ If > 2000 ms → LONG PRESS\
-→ Else → Enter BUTTON_WAIT_DOUBLE\
-→ Start double-click timeout window
-
-Second Press (within 1 second)\
-→ Transition to BUTTON_SECOND_PRESS\
-→ Capture press2_start_time
-
-Second Release\
-→ Measure press2_duration\
-→ If > 2000 ms → LONG PRESS\
-→ Else → DOUBLE PRESS
-
-Timeout (no second press)\
-→ SHORT PRESS
+→ Measure duration
+→ Classify event (SHORT / LONG / DOUBLE)
+→ Generate event
 
 Main Loop\
-→ Execute corresponding action
+→ Pop event
+→ Update application state
+→ Execute output behavior
 
 ## Advantages
-- Eliminates button bounce issues  
 - Stable and deterministic response  
 - Accurate press duration measurement  
 - Clean separation of detection, validation, and action  
 - Supports multi-click interactions  
 - Priority-based event resolution  
 - Scalable for advanced input handling
+- Supports complex user interactions
+- Scalable architecture for future extensions
 
 ## Considerations
-- ISR kept minimal\
-- Debounce handled via timer\
-- State machine ensures clean transitions\
-- Main loop must remain non-blocking\
+- ISR kept minimal
+- FSM ensures valid transitions
+- Main loop must remain non-blocking
 - External pull-up defines active-low logic
 
 ## Learning Outcomes
-- EXTI interrupt handling\
-- Timer-based debounce\
-- State machine design\
-- Multi-event input handling\
-- ISR design best practices\
-- Debounce using hardware timer\
-- Event-driven embedded system design\
-- Separation of concerns in embedded systems\
+- EXTI interrupt handling
+- Timer-based debounce
+- State machine design
+- Multi-event input handling
+- ISR design best practices
+- Debounce using hardware timer
+- Event-driven embedded system design
+- Separation of concerns in embedded systems
 - Time-window based interaction modeling
+- Event-driven embedded architecture
+- State vs Event separation
+- Multi-click interaction modeling
+- Driver abstraction in embedded systems
+- Scalable system design principles
 
 
 ## Author
