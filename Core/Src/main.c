@@ -21,28 +21,16 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "button.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
-
-/* Defines different Button States */
 typedef enum{
-	BUTTON_IDLE,
-	BUTTON_DEBOUNCING,
-	BUTTON_FIRST_PRESS,
-	BUTTON_WAIT_DOUBLE,
-	BUTTON_SECOND_PRESS
-} ButtonState_t;
+	LED_IDLE,
+	LED_BLINK
+}LEDState_t;
 
-/* Defines different Button Events */
-typedef enum{
-	EVENT_NONE,
-	EVENT_SINGLE_CLICK,
-	EVENT_DOUBLE_CLICK,
-	EVENT_LONG_CLICK
-} ButtonEvent_t;
 
 /* USER CODE END PTD */
 
@@ -54,6 +42,7 @@ typedef enum{
 #define OUTPUT_GROUP  GPIOA
 #define LED           GPIO_PIN_5
 #define BUTTON_ACTIVE GPIO_PIN_RESET
+#define NUM_BUTTON 2
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -81,6 +70,15 @@ uint32_t press_duration=0;
 uint32_t press2_duration=0;
 /* Variable to hold the overall duration of the button press*/
 uint32_t release_time=0;
+/* Variable to hold the button attributes */
+button_t button[NUM_BUTTON];
+/* Variable to hold the LED States */
+LEDState_t  LEDState;
+/* Variable to indicate the setting of LED toggle once */
+static uint8_t toggle_once_flag=0;
+/* Variable to indicate the setting of LED toggle twice */
+static uint8_t toggle_twice_flag=0;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -89,167 +87,104 @@ static void MX_GPIO_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_TIM2_Init(void);
 /* USER CODE BEGIN PFP */
+static void APP_LEDStateEval();
 static void APP_LEDOutput();
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
-/**
+/************************************************************
   * @brief  HAL Callback for the EXTI Trigger
   *         1. Performs Button state transitions.
   *         2. Starts the timer based on the Button state.
   *         3. Single and Double click Evaluated.
   * @retval void
-  */
+  ***********************************************************/
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
-	if(GPIO_Pin == BUTTON_SWITCH)
-	{
-		if(HAL_GPIO_ReadPin(INPUT_GROUP,BUTTON_SWITCH)==BUTTON_ACTIVE)
+	for(int i =0;i<NUM_BUTTON;i++){
+		if(GPIO_Pin == button[i].pin)
 		{
-			/*Trigger the timer only if the state is idle*/
-			if(button_state == BUTTON_IDLE)
+			if(HAL_GPIO_ReadPin(button[i].port,button[i].pin)==BUTTON_ACTIVE)
 			{
-
-				/*Clear the timer*/
-				__HAL_TIM_SET_COUNTER(&htim2,0);
-				/*Start timer*/
-				HAL_TIM_Base_Start_IT(&htim2);
-
-				button_state = BUTTON_DEBOUNCING;
-			}
-			/*Capture the timestamp to check for seond press duration*/
-			else if(button_state == BUTTON_WAIT_DOUBLE)
-			{
-				press2_start_time = HAL_GetTick();
-				button_state = BUTTON_SECOND_PRESS;
-			}
-			else
-			{
-				/*Do Nothing for any other state*/
-			}
-		}
-		else
-		{
-			if(button_state == BUTTON_FIRST_PRESS)
-			{
-				/*Calculate the duration*/
-				press_duration = HAL_GetTick()-press_start_time;
-
-				/* Button pressed for 2s , then its considered long else short press. */
-				if(press_duration>2000)
-				{
-					button_event = EVENT_LONG_CLICK;
-					button_state = BUTTON_IDLE;
-				}
-				else
-				{
-					release_time = HAL_GetTick();
-					button_state = BUTTON_WAIT_DOUBLE;
-
-				}
-				press_start_time=0;
-
-			}
-			else if(button_state == BUTTON_SECOND_PRESS)
-			{
-				/*Calculate the second click duration*/
-				press2_duration = HAL_GetTick()-press2_start_time;
-
-				/* Button pressed for 2s , then its considered long else double click */
-				if(press2_duration>2000)
-				{
-
-					button_event = EVENT_LONG_CLICK;
-					button_state = BUTTON_IDLE;
-
-				}
-				else
-				{
-					button_event = EVENT_DOUBLE_CLICK;
-					button_state = BUTTON_IDLE;
-				}
-				press2_start_time = 0;
+				button_handle_press(&button[i]);
 
 			}
 			else
 			{
-
+				button_handle_release(&button[i]);
 			}
 		}
 
 	}
 }
 
-/**
-  * @brief  HAL Callback when the timer is elapsed which was started
-  *         in HAL_GPIO_EXTI_Callback
-  *         1. Resets the timer
-  *         2. Toggles the LED based on button state
-  * @retval void
-  */
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+
+/************************************************************
+ * @brief  Sets the LED State based on the  Button State
+ *         SINGLE CLICK : LED_TOG_ONCE
+ *         DOUBLE CLICK : LED_TOG_TWICE
+ *         LONG CLICK : Keep the LED in BLINK state
+ * @retval void
+  ***********************************************************/
+static void APP_LEDStateEval()
 {
-	if(htim->Instance == TIM2)
-	{
-		/*stop timer*/
-		HAL_TIM_Base_Stop_IT(&htim2);
+	ButtonEvent_t Event_t;
 
-		/*If the state is debounce then
-		 *  evaluate the pin to set the Button state accordingly*/
-		if(button_state == BUTTON_DEBOUNCING)
+	for(int i =0;i<NUM_BUTTON;i++)
+	{
+
+		button_process(&button[i]);
+
+		Event_t =  button_pop_event(&button[i]);
+
+		if(Event_t!=EVENT_NONE)
 		{
-			/* Read the pin to be still pressed after debounce time*/
-			if(HAL_GPIO_ReadPin(INPUT_GROUP,BUTTON_SWITCH) == BUTTON_ACTIVE)
+			/*Toggle the LED if its a single click*/
+			if(Event_t== EVENT_LONG_CLICK)
+			{
+				LEDState = LED_BLINK;
+
+			}
+			/*Blink the LED if its a long click*/
+			else if(Event_t == EVENT_SINGLE_CLICK)
+			{
+				toggle_once_flag=1;
+				LEDState = LED_IDLE;
+
+			}
+			/*Toggle the LED twice with delay of 1s if its a double click*/
+			else if(Event_t == EVENT_DOUBLE_CLICK)
 			{
 
-				button_state = BUTTON_FIRST_PRESS;
-				/*Capture the button press time*/
-				press_start_time = HAL_GetTick();
+				toggle_twice_flag=1;
+				LEDState = LED_IDLE;
+
 			}
 			else
 			{
-				/*Ignore the event since it was not valid*/
-				button_state = BUTTON_IDLE;
+				/*There is no event so do nothing*/
 			}
-
 		}
-
 	}
 }
 
 
-/**
-  * @brief  Toggles/Blink the LED based on the Button State
-  *         SINGLE CLICK : Toggle Once
-  *         DOUBLE CLICK : Toggle twice
-  *         LONG CLICK : Keep the LED in BLINK state
-  * @retval void
-  */
+/************************************************************
+ * @brief  Toggles/Blink the LED based on the Button State
+ *         SINGLE CLICK : Toggle Once
+ *         DOUBLE CLICK : Toggle twice
+ *         LONG CLICK : Keep the LED in BLINK state
+ * @retval void
+  ***********************************************************/
 static void APP_LEDOutput()
 {
-
 	static uint32_t last_toggle=0;
 	static uint8_t toggle_counter =0;
 
-	/*STOP waiting for the second click after 1s and consider it to be single click*/
-	if((button_state==BUTTON_WAIT_DOUBLE)&&((HAL_GetTick()-release_time)>1000))
-	{
-		button_event = EVENT_SINGLE_CLICK;
-		button_state = BUTTON_IDLE;
-		release_time=0;
-	}
-
-	/*Toggle the LED if its a single click*/
-	if(button_event == EVENT_SINGLE_CLICK)
-	{
-		HAL_GPIO_TogglePin(OUTPUT_GROUP,LED);
-		button_event = EVENT_NONE;
-	}
-	/*Blink the LED if its a long click*/
-	else if(button_event == EVENT_LONG_CLICK)
-	{
+	/*State Driven Behaviour*/
+	if(LEDState == LED_BLINK){
 		/*Blink => Toggle with delay(500ms) */
 		if(HAL_GetTick()-last_toggle > 500)
 		{
@@ -257,8 +192,19 @@ static void APP_LEDOutput()
 			last_toggle = HAL_GetTick();
 		}
 	}
-	/*Toggle the LED twice with delay of 1s if its a double click*/
-	else if(button_event == EVENT_DOUBLE_CLICK)
+
+	/*One time action */
+
+	/*Toggle once*/
+	if(toggle_once_flag)
+	{
+		HAL_GPIO_TogglePin(OUTPUT_GROUP,LED);
+		toggle_once_flag=0;
+
+	}
+
+	/*Toggle twice*/
+	if(toggle_twice_flag)
 	{
 		if(HAL_GetTick()-last_toggle > 1000)
 		{
@@ -268,24 +214,22 @@ static void APP_LEDOutput()
 		}
 		if(toggle_counter>1)
 		{
-			button_event = EVENT_NONE;
 			last_toggle=0;
 			toggle_counter=0;
+			toggle_twice_flag=0;
 		}
 	}
-	else
-	{
-		/*There is no event so do nothing*/
-	}
+
+
 
 }
-
 /* USER CODE END 0 */
 
-/**
+
+/************************************************************
   * @brief  The application entry point.
   * @retval int
-  */
+  ***********************************************************/
 int main(void)
 {
 
@@ -314,6 +258,9 @@ int main(void)
   MX_USART2_UART_Init();
   MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
+  /*Initialize the button*/
+  button_init(&button[0],GPIOC,GPIO_PIN_13);
+  button_init(&button[1],GPIOC,GPIO_PIN_14);
 
   /* USER CODE END 2 */
 
@@ -321,6 +268,7 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+	APP_LEDStateEval();
 	APP_LEDOutput();
     /* USER CODE END WHILE */
 
@@ -476,8 +424,8 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_RESET);
 
-  /*Configure GPIO pin : PC13 */
-  GPIO_InitStruct.Pin = GPIO_PIN_13;
+  /*Configure GPIO pins : PC13 PC14 */
+  GPIO_InitStruct.Pin = GPIO_PIN_13|GPIO_PIN_14;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
@@ -532,3 +480,42 @@ void assert_failed(uint8_t *file, uint32_t line)
   /* USER CODE END 6 */
 }
 #endif /* USE_FULL_ASSERT */
+
+///******************************To be considered in next upgrade#start********************************************************
+//  * @brief  HAL Callback when the timer is elapsed which was started
+//  *         in HAL_GPIO_EXTI_Callback
+//  *         1. Resets the timer
+//  *         2. Toggles the LED based on button state
+//  * @retval void
+//  */
+//void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+//{
+//	if(htim->Instance == TIM2)
+//	{
+//		/*stop timer*/
+//		HAL_TIM_Base_Stop_IT(&htim2);
+//
+//		/*If the state is debounce then
+//		 *  evaluate the pin to set the Button state accordingly*/
+//		if(button_state == BUTTON_DEBOUNCING)
+//		{
+//			/* Read the pin to be still pressed after debounce time*/
+//			if(HAL_GPIO_ReadPin(INPUT_GROUP,BUTTON_SWITCH) == BUTTON_ACTIVE)
+//			{
+//
+//				button_state = BUTTON_FIRST_PRESS;
+//				/*Capture the button press time*/
+//				press_start_time = HAL_GetTick();
+//			}
+//			else
+//			{
+//				/*Ignore the event since it was not valid*/
+//				button_state = BUTTON_IDLE;
+//			}
+//
+//		}
+//
+//	}
+//}
+///******************************To be considered in next upgrade#end********************************************************
+
