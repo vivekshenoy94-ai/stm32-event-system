@@ -11,12 +11,14 @@ using:
 -   State Machine for structured control
 -   Event-driven logic for user interraction
 
-The system separates **detection, validation, and action**, ensuring
-reliable and scalable behavior.
+The system enforces a clear separation of:\
+Detection → Validation → Event Generation → Event Buffering → Action Execution
 
-Additionally, the design introduces a modular button driver abstraction and
-state-based application control, enabling clean separation between input handling
-and output behavior.
+Additionally, the design introduces:
+- Modular button driver abstraction
+- State-based application control
+- Event queue for decoupled processing
+- Chunked event scheduling for fairness under load
 
 ## Hardware Setup
 - Button → PC13 (EXTI Rising & Falling Edge)
@@ -134,7 +136,7 @@ control flow, and architectural clarity.
 - Scalable foundation for multi-click and multi-button systems
 
 
-### Version 5 — Modular Driver Abstraction with State-Based Output Handling (Current)
+### Version 5 — Modular Driver Abstraction with State-Based Output Handling
 
 - Introduced button driver abstraction:
   
@@ -193,11 +195,56 @@ control flow, and architectural clarity.
 
 - Improves scalability for multiple inputs and outputs
 
+### Version 6 — Event Queue with Chunked Processing (Current)
+
+- Introduced event queue (circular buffer):
+  
+  - Decouples event production from consumption
+  - Preserves event ordering
+
+- Implemented producer–consumer model:
+  
+  - Button driver → produces events
+  - Application layer → consumes events
+
+- Added queue overflow handling:
+  
+  - Prevents system blocking
+  - Allows controlled event dropping
+
+- Introduced chunked event collection with resume index:
+  
+  - Handles queue full conditions gracefully
+  - Ensures fair processing across all buttons
+  - Avoids starvation
+
+- Implemented processing scheduling loop:
+  
+  - Collect → Process → Resume
+
+#### System Behavior
+
+- Events are buffered before processing
+- Queue ensures ordered and deterministic handling
+- When queue is full:
+  - Event collection pauses
+  - Processing resumes
+  - Remaining inputs are handled in next cycle
+
+#### Improvements
+
+- Eliminates event loss due to overwrite
+- Decouples timing of input and processing
+- Ensures fairness across multiple inputs
+- Introduces back-pressure handling
+- Enables scalable multi-button systems
+- Prepares system for RTOS integration
+
 ---
 ## Key Features
 - Interrupt-driven button handling (EXTI)
 - State machine-based signal validation
-- Event-driven action handling
+- Event-driven architecture
 - Clean separation of ISR and main loop
 - Short press detection  
 - Long press detection (> 2 seconds)  
@@ -206,15 +253,22 @@ control flow, and architectural clarity.
 - Non-blocking LED behavior
 - Deterministic and stable behavior
 - Scalable multi-button design
+- Event queue buffering
+- Producer–consumer design
+- Chunked event scheduling
 
 ## System Architecture
-EXTI → Detect edge\
-↓\
-Button Driver (FSM) → Event Generation\
-↓\
-Application Layer → State Update\
-↓\
-Output Layer → Action Execution
+EXTI → Edge Detection\
+      ↓\
+Button Driver (FSM)\
+      ↓\
+Event Generation\
+      ↓\
+Event Queue (Buffer)\
+      ↓\
+Application Layer (State Update)\
+      ↓\
+Output Layer (Execution)
 
 ## System Flow
 Button Press (PC13)\
@@ -226,43 +280,40 @@ Button Release\
 → Measure duration
 → Classify event (SHORT / LONG / DOUBLE)
 → Generate event
+→ Push event to queue
 
 Main Loop\
-→ Pop event
-→ Update application state
-→ Execute output behavior
+→ Collect events (chunked)
+→ Process queued events
+→ Update system state
+→ Execute output
 
 ## Advantages
-- Stable and deterministic response  
-- Accurate press duration measurement  
-- Clean separation of detection, validation, and action  
-- Supports multi-click interactions  
-- Priority-based event resolution  
-- Scalable for advanced input handling
-- Supports complex user interactions
-- Scalable architecture for future extensions
+- Deterministic and stable system behavior
+- Clean separation of detection, validation, and action
+- Decoupled architecture using event buffering (queue)
+- Fair processing across multiple inputs under load
+- Non-blocking design ensuring responsive system execution
+- Scalable for multi-button and multi-event systems
+- Robust handling of edge cases and overflow conditions
+- Modular and extensible architecture for future enhancements
 
 ## Considerations
 - ISR kept minimal
 - FSM ensures valid transitions
 - Main loop must remain non-blocking
 - External pull-up defines active-low logic
+- Queue size limits must be defined carefully
 
 ## Learning Outcomes
-- EXTI interrupt handling
-- Timer-based debounce
-- State machine design
-- Multi-event input handling
-- ISR design best practices
-- Debounce using hardware timer
-- Event-driven embedded system design
-- Separation of concerns in embedded systems
-- Time-window based interaction modeling
-- Event-driven embedded architecture
-- State vs Event separation
-- Multi-click interaction modeling
-- Driver abstraction in embedded systems
-- Scalable system design principles
+- EXTI interrupt handling and timer-based debounce design
+- Finite State Machine (FSM) implementation for input validation
+- Clear separation of state (behavior) vs event (trigger)
+- Event-driven system design with non-blocking execution
+- Modular driver abstraction and layered architecture design
+- Multi-click interaction modeling (short, long, double press)
+- Circular buffer (event queue) and producer–consumer pattern
+- Fair scheduling and back-pressure handling under system constraints
 
 
 ## Author
