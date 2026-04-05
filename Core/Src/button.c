@@ -8,6 +8,8 @@
 
 #include "button.h"
 
+
+#define DEBOUNCE_THRESHOLD 2
 /************************************************************
   * @brief  Function to initialize the buttons
   *
@@ -21,9 +23,9 @@ void button_init(button_t *btn,GPIO_TypeDef *port,uint16_t pin)
 	btn->state = BUTTON_IDLE;
 	btn->event = EVENT_NONE;
 
-	btn->press2_start_time=0;
+	btn->debounce_time=0;
 	btn->release_time=0;
-	btn->press_start_time=0;
+	btn->press_time=0;
 }
 /************************************************************/
 
@@ -34,24 +36,22 @@ void button_init(button_t *btn,GPIO_TypeDef *port,uint16_t pin)
  ***********************************************************/
 void button_handle_press(button_t *btn)
 {
-	/*Trigger the timer only if the state is idle*/
-	if(btn->state == BUTTON_IDLE)
-	{
 
-		btn->press_start_time = HAL_GetTick();
+	switch(btn->state)
+	{
+	/*Evaluate the First or second click to ensure that its not noise*/
+	case BUTTON_IDLE:
+		btn->state  = BUTTON_DEBOUNCE_FIRST;
+		btn->debounce_time=0;
+		break;
+	case BUTTON_WAIT_DOUBLE:
+		btn->state  = BUTTON_DEBOUNCE_SECOND;
+		btn->debounce_time=0;
+		break;
+	default:
+		break;
+	}
 
-		btn->state  = BUTTON_FIRST_PRESS;
-	}
-	/*Capture the timestamp to check for seond press duration*/
-	else if(btn->state == BUTTON_WAIT_DOUBLE)
-	{
-		btn->press2_start_time = HAL_GetTick();
-		btn->state = BUTTON_SECOND_PRESS;
-	}
-	else
-	{
-		/*Do Nothing for any other state*/
-	}
 }
 /************************************************************/
 
@@ -62,35 +62,29 @@ void button_handle_press(button_t *btn)
  ***********************************************************/
 void button_handle_release(button_t *btn)
 {
-	/* Variable to hold the overall duration of the button press*/
-	uint32_t press_duration=0;
-	if(btn->state == BUTTON_FIRST_PRESS)
+	switch(btn->state)
 	{
-		/*Calculate the duration*/
-		press_duration = HAL_GetTick()-btn->press_start_time;
+	case BUTTON_FIRST_PRESS:
 
-		/* Button pressed for 2s , then its considered long else short press. */
-		if(press_duration>2000)
+		/* Button pressed for 2s , then its considered long else wait for double press. */
+		if(btn->press_time>200)
 		{
 			btn->event = EVENT_LONG_CLICK;
 			btn->state = BUTTON_IDLE;
+
 		}
 		else
 		{
-			btn->release_time = HAL_GetTick();
 			btn->state = BUTTON_WAIT_DOUBLE;
 
 		}
-		btn->press_start_time=0;
+		btn->press_time=0;
+		break;
 
-	}
-	else if(btn->state == BUTTON_SECOND_PRESS)
-	{
-		/*Calculate the second click duration*/
-		uint32_t press2_duration = HAL_GetTick()-btn->press2_start_time;
+	case BUTTON_SECOND_PRESS:
 
 		/* Button pressed for 2s , then its considered long else double click */
-		if(press2_duration>2000)
+		if(btn->press_time>200)
 		{
 
 			btn->event = EVENT_LONG_CLICK;
@@ -101,13 +95,12 @@ void button_handle_release(button_t *btn)
 			btn->event = EVENT_DOUBLE_CLICK;
 		}
 		btn->state = BUTTON_IDLE;
-		btn->press2_start_time = 0;
-
+		btn->press_time = 0;
+	default:
+		break;
 	}
-	else
-	{
 
-	}
+
 }
 /************************************************************/
 
@@ -120,11 +113,57 @@ void button_process(button_t *btn)
 {
 
 	/*STOP waiting for the second click after 1s and consider it to be single click*/
-	if((btn->state==BUTTON_WAIT_DOUBLE)&&((HAL_GetTick()-btn->release_time)>1000))
+	if((btn->state==BUTTON_WAIT_DOUBLE)&&((btn->release_time)>100))
 	{
 		btn->event = EVENT_SINGLE_CLICK;
 		btn->state = BUTTON_IDLE;
 		btn->release_time=0;
+	}
+
+    /* Switch states are same after debounce time :
+     *   then consider moving to next state
+     */
+	if((btn->state == BUTTON_DEBOUNCE_FIRST)||(btn->state == BUTTON_DEBOUNCE_SECOND))
+	{
+		if(btn->debounce_time >= DEBOUNCE_THRESHOLD)
+		{
+			/* Read the pin to be still pressed after debounce time*/
+			if(HAL_GPIO_ReadPin(btn->port,btn->pin) == BUTTON_ACTIVE)
+			{
+
+				switch(btn->state)
+				{
+				case BUTTON_DEBOUNCE_FIRST:
+					btn->state = BUTTON_FIRST_PRESS;
+					break;
+				case BUTTON_DEBOUNCE_SECOND:
+					btn->state = BUTTON_SECOND_PRESS;
+					break;
+				default:
+					break;
+				}
+			}
+			else
+			{
+    /* Switch states are not same after debounce time :
+     *   first press or second press is discarded accordingly
+     */
+				switch(btn->state)
+				{
+				case BUTTON_DEBOUNCE_FIRST:
+					btn->state = BUTTON_IDLE;
+					break;
+				case BUTTON_DEBOUNCE_SECOND:
+					btn->state = BUTTON_FIRST_PRESS;
+					break;
+				default:
+					break;
+				}
+			}
+			btn->debounce_time=0;
+		}
+
+
 	}
 
 
@@ -142,4 +181,32 @@ ButtonEvent_t button_pop_event(button_t *btn)
 	btn->event = EVENT_NONE;
 	return Ret_event;
 }
+/************************************************************/
+/************************************************************
+  * @brief Increment the respective counter based on the Button States
+  *
+  * @retval void
+ ***********************************************************/
+void button_tick(button_t *btn)
+{
+   switch(btn->state)
+   {
+   case BUTTON_DEBOUNCE_FIRST:
+   case BUTTON_DEBOUNCE_SECOND:
+	   btn->debounce_time++;
+	   break;
+   case BUTTON_FIRST_PRESS:
+   case BUTTON_SECOND_PRESS:
+	   btn->press_time++;
+	   break;
+   case BUTTON_WAIT_DOUBLE:
+	   btn->release_time++;
+	   break;
+
+   default:
+	   break;
+   }
+
+}
+
 /************************************************************/

@@ -38,12 +38,10 @@ typedef enum{
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define INPUT_GROUP   GPIOC
-#define BUTTON_SWITCH GPIO_PIN_13
 
 #define OUTPUT_GROUP  GPIOA
 #define LED           GPIO_PIN_5
-#define BUTTON_ACTIVE GPIO_PIN_RESET
+
 #define NUM_BUTTON 2
 /* USER CODE END PD */
 
@@ -58,24 +56,10 @@ TIM_HandleTypeDef htim2;
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
-/* Variable to hold the state of the button transitions*/
-volatile ButtonState_t button_state =BUTTON_IDLE;
-/* Variable to hold the Press event of Button*/
-volatile ButtonEvent_t button_event =EVENT_NONE;
-/* Variable to hold the start time when the button is first pressed*/
-uint32_t press_start_time=0;
-/* Variable to hold the start time when the button is first pressed*/
-uint32_t press2_start_time=0;
-/* Variable to hold the overall duration of the button press*/
-uint32_t press_duration=0;
-/* Variable to hold the overall duration of the button press*/
-uint32_t press2_duration=0;
-/* Variable to hold the overall duration of the button press*/
-uint32_t release_time=0;
 /* Variable to hold the button attributes */
-button_t button[NUM_BUTTON];
+static button_t button[NUM_BUTTON];
 /* Variable to hold the LED States */
-LEDState_t  LEDState;
+static LEDState_t  LEDState;
 /* Variable to indicate the setting of LED toggle once */
 static uint8_t toggle_once_flag=0;
 /* Variable to indicate the setting of LED toggle twice */
@@ -91,12 +75,14 @@ static void MX_TIM2_Init(void);
 /* USER CODE BEGIN PFP */
 static void app_led_state_eval(void);
 static void app_led_output(void);
-static uint8_t button_collect_events(uint8_t index);
-static void process_appl_events(void);
+static uint8_t app_queue_button_events(uint8_t index);
+static void app_process_events(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
+/************************************************************ISR Driven:BEGIN************************************************************/
 
 /************************************************************
   * @brief  HAL Callback for the EXTI Trigger
@@ -125,21 +111,39 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 }
 
 /************************************************************
+  * @brief  HAL Callback when the timer is elapsed which was started
+  *         in HAL_GPIO_EXTI_Callback
+  *         -> Increments the respective counters based on the button state accordingly 
+  * @retval void
+   ***********************************************************/
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+	if(htim->Instance == TIM2)
+	{
+		for(int i =0;i<NUM_BUTTON;i++)
+		{
+			button_tick(&button[i]);
+		}
+	}
+
+}
+/************************************************************ISR Driven:END************************************************************/
+
+/************************************************************Main Function Driven:BEGIN************************************************/
+/************************************************************
  * @brief  Collects and processes the events for LED States
  * @retval void
  ***********************************************************/
 static void app_led_state_eval()
 {
-
-
 	uint8_t index=0;
 
 	while(index<NUM_BUTTON)
 	{
 		/*update the events in queue*/
-		index = button_collect_events(index);
+		index = app_queue_button_events(index);
 		/*process the queue event to set the LED state*/
-		process_appl_events();
+		app_process_events();
 	}
 }
 
@@ -148,7 +152,7 @@ static void app_led_state_eval()
  * @brief  Collects the events into the queue for ordered processing
  * @retval void
  ***********************************************************/
-static uint8_t button_collect_events(uint8_t index)
+static uint8_t app_queue_button_events(uint8_t index)
 {
     uint8_t stop_index=NUM_BUTTON;
 	app_event_t app_event;
@@ -169,9 +173,9 @@ static uint8_t button_collect_events(uint8_t index)
 			if(!event_queue_push(&app_event))
 			{
 				/*Since processing rest of the button will not yield
-				 * any benefit since the queue is full, hence stop at next index
+				 * any benefit since the queue is full, hence stop at current index
 				 */
-				stop_index = i+1;
+				stop_index = i;
 				break;
 			}
 		}
@@ -186,7 +190,7 @@ static uint8_t button_collect_events(uint8_t index)
  *         LONG CLICK : Keep the LED in BLINK state
  * @retval void
  ***********************************************************/
-static void process_appl_events(void)
+static void app_process_events(void)
 {
 	app_event_t app_event;
 	while(event_queue_pop(&app_event))
@@ -254,7 +258,7 @@ static void app_led_output()
 			last_toggle = HAL_GetTick();
 			toggle_counter++;
 		}
-		if(toggle_counter>1)
+		if(toggle_counter>=2)
 		{
 			last_toggle=0;
 			toggle_counter=0;
@@ -266,7 +270,6 @@ static void app_led_output()
 
 }
 /* USER CODE END 0 */
-
 
 /************************************************************
   * @brief  The application entry point.
@@ -300,10 +303,14 @@ int main(void)
   MX_USART2_UART_Init();
   MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
-  /*Initialize the button*/
+
+  /*Initialize the buttons*/
   button_init(&button[0],GPIOC,GPIO_PIN_13);
   button_init(&button[1],GPIOC,GPIO_PIN_14);
   event_queue_init();
+
+  /*start timer*/
+  HAL_TIM_Base_Start_IT(&htim2);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -317,9 +324,10 @@ int main(void)
     /* USER CODE BEGIN 3 */
 
   }
-  /* USER CODE END 3 */
-}
 
+}
+/************************************************************Main Function Driven:END************************************************/
+/* USER CODE END 3 */
 /**
   * @brief System Clock Configuration
   * @retval None
@@ -386,9 +394,9 @@ static void MX_TIM2_Init(void)
 
   /* USER CODE END TIM2_Init 1 */
   htim2.Instance = TIM2;
-  htim2.Init.Prescaler = 15999;
+  htim2.Init.Prescaler = 8400-1;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim2.Init.Period = 200;
+  htim2.Init.Period = 99;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
@@ -522,42 +530,3 @@ void assert_failed(uint8_t *file, uint32_t line)
   /* USER CODE END 6 */
 }
 #endif /* USE_FULL_ASSERT */
-
-///******************************To be considered in next upgrade#start********************************************************
-//  * @brief  HAL Callback when the timer is elapsed which was started
-//  *         in HAL_GPIO_EXTI_Callback
-//  *         1. Resets the timer
-//  *         2. Toggles the LED based on button state
-//  * @retval void
-//  */
-//void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
-//{
-//	if(htim->Instance == TIM2)
-//	{
-//		/*stop timer*/
-//		HAL_TIM_Base_Stop_IT(&htim2);
-//
-//		/*If the state is debounce then
-//		 *  evaluate the pin to set the Button state accordingly*/
-//		if(button_state == BUTTON_DEBOUNCING)
-//		{
-//			/* Read the pin to be still pressed after debounce time*/
-//			if(HAL_GPIO_ReadPin(INPUT_GROUP,BUTTON_SWITCH) == BUTTON_ACTIVE)
-//			{
-//
-//				button_state = BUTTON_FIRST_PRESS;
-//				/*Capture the button press time*/
-//				press_start_time = HAL_GetTick();
-//			}
-//			else
-//			{
-//				/*Ignore the event since it was not valid*/
-//				button_state = BUTTON_IDLE;
-//			}
-//
-//		}
-//
-//	}
-//}
-///******************************To be considered in next upgrade#end********************************************************
-
