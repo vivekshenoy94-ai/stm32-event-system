@@ -281,8 +281,30 @@ control flow, and architectural clarity.
 
 - *Long Click*
   - Detected via press_time threshold  
-  - LED enters continuous toggle mode  
+  - LED enters continuous toggle mode
 
+#### FSM Diagram (Button State Machine)
+
+```mermaid
+stateDiagram-v2
+    [*] --> IDLE
+
+    IDLE --> DEBOUNCE_FIRST : Press Edge
+
+    DEBOUNCE_FIRST --> FIRST_PRESS : Stable Press
+    DEBOUNCE_FIRST --> IDLE : Noise
+
+    FIRST_PRESS --> WAIT_DOUBLE : Release
+    FIRST_PRESS --> IDLE : Long Press
+
+    WAIT_DOUBLE --> DEBOUNCE_SECOND : Second Press
+    WAIT_DOUBLE --> IDLE : Timeout (Single Click)
+
+    DEBOUNCE_SECOND --> SECOND_PRESS : Stable Press
+    DEBOUNCE_SECOND --> WAIT_DOUBLE : Noise
+
+    SECOND_PRESS --> IDLE : Release (Double Click)
+```
 #### Improvements
 
 - Deterministic timing using hardware timer  
@@ -378,3 +400,7 @@ Output Layer (LED Execution)
 ## Author
 Vivek Shenoy K\
 Embedded Software Architect
+
+
+---
+
