@@ -1,24 +1,25 @@
-# STM32 Button Event System (Multi-Press Event Driven Architecture)
+# STM32 Button Event System (Multi-Press Event Driven ,Timer Based FSM Architecture)
 
 ------------------------------------------------------------------------
 
 ## Overview
-This project demonstrates a **robust event-driven embedded system**
+This project demonstrates a *robust event-driven embedded system*
 using:
 
--   External Interrupts (EXTI) for button detection
--   Timer Interrupts for debounce
--   State Machine for structured control
--   Event-driven logic for user interraction
+- External Interrupts (EXTI) for button detection  
+- Timer Interrupts for deterministic time tracking (debounce + duration)  
+- State Machine for structured control  
+- Event-driven logic for user interaction  
 
-The system enforces a clear separation of:\
-Detection → Validation → Event Generation → Event Buffering → Action Execution
+The system enforces a clear separation of:  
+*Detection → Timing → Validation → Event Generation → Event Buffering → Action Execution*
 
 Additionally, the design introduces:
-- Modular button driver abstraction
-- State-based application control
-- Event queue for decoupled processing
-- Chunked event scheduling for fairness under load
+- Modular button driver abstraction  
+- State-based application control  
+- Event queue for decoupled processing  
+- Chunked event scheduling for fairness under load  
+- Timer-driven FSM for deterministic behavior
 
 ## Hardware Setup
 - Button → PC13 (EXTI Rising & Falling Edge)
@@ -195,7 +196,7 @@ control flow, and architectural clarity.
 
 - Improves scalability for multiple inputs and outputs
 
-### Version 6 — Event Queue with Chunked Processing (Current)
+### Version 6 — Event Queue with Chunked Processing 
 
 - Introduced event queue (circular buffer):
   
@@ -240,9 +241,61 @@ control flow, and architectural clarity.
 - Enables scalable multi-button systems
 - Prepares system for RTOS integration
 
+### Version 7 — Simplified Timer-Driven FSM (Current)
+
+- Refactored FSM
+- Introduced simplified and explicit states:
+  - BUTTON_IDLE  
+  - BUTTON_DEBOUNCE_FIRST  
+  - BUTTON_FIRST_PRESS  
+  - BUTTON_WAIT_DOUBLE  
+  - BUTTON_DEBOUNCE_SECOND 
+  - BUTTON_SECOND_PRESS  
+
+- Introduced *timer-driven state progression*:
+  - button_tick() updates:
+    - debounce_time  
+    - press_time  
+    - release_time  
+  - Driven by TIM2 interrupt for deterministic timing  
+
+- Simplified ISR design:
+  - EXTI only detects edge (press/release)  
+  - No timing or decision logic inside ISR  
+
+- Refactored FSM handling:
+  - button_process() handles:
+    - debounce validation  
+    - state transitions  
+    - event generation  
+
+#### System Behavior
+
+- *Short Click*
+  - Triggered after double-click timeout  
+  - LED toggles once  
+
+- *Double Click*
+  - Detected via second press within time window  
+  - LED toggles twice  
+
+- *Long Click*
+  - Detected via press_time threshold  
+  - LED enters continuous toggle mode  
+
+#### Improvements
+
+- Deterministic timing using hardware timer  
+- Eliminates dependency on main loop timing  
+- Reduced FSM complexity and improved readability  
+- Proper separation of ISR, timing, and logic  
+- Improved reliability under system load  
+- Production-style embedded architecture
+
 ---
 ## Key Features
 - Interrupt-driven button handling (EXTI)
+- Timer-driven debounce and timing model
 - State machine-based signal validation
 - Event-driven architecture
 - Clean separation of ISR and main loop
@@ -260,6 +313,8 @@ control flow, and architectural clarity.
 ## System Architecture
 EXTI → Edge Detection\
       ↓\
+TIMER ISR → Time Tracking (button_tick)\
+      ↓\
 Button Driver (FSM)\
       ↓\
 Event Generation\
@@ -268,29 +323,30 @@ Event Queue (Buffer)\
       ↓\
 Application Layer (State Update)\
       ↓\
-Output Layer (Execution)
+Output Layer (LED Execution)
+
 
 ## System Flow
-Button Press (PC13)\
-→ EXTI Interrupt Triggered
-→ FSM updates state
-→ Capture press_start_time
+*Button Press (PC13)*  
+→ EXTI Interrupt Triggered  
+→ Transition to DEBOUNCING  
 
-Button Release\
-→ Measure duration
-→ Classify event (SHORT / LONG / DOUBLE)
-→ Generate event
-→ Push event to queue
+*Timer Interrupt (TIM2)*  
+→ Updates debounce_time / press_time / release_time  
 
-Main Loop\
-→ Collect events (chunked)
-→ Process queued events
-→ Update system state
-→ Execute output
+*Main Loop*  
+→ button_process() validates state  
+→ Classifies event (SHORT / LONG / DOUBLE)  
+→ Push event to queue  
+
+*Application*  
+→ Processes queued events  
+→ Updates system state  
+→ Executes output behavior
 
 ## Advantages
 - Deterministic and stable system behavior
-- Clean separation of detection, validation, and action
+- Clean separation of detection, timing, validation, and action
 - Decoupled architecture using event buffering (queue)
 - Fair processing across multiple inputs under load
 - Non-blocking design ensuring responsive system execution
@@ -299,14 +355,16 @@ Main Loop\
 - Modular and extensible architecture for future enhancements
 
 ## Considerations
-- ISR kept minimal
-- FSM ensures valid transitions
-- Main loop must remain non-blocking
-- External pull-up defines active-low logic
+- ISR kept minimal (edge detection only)  
+- Timer defines system timing resolution  
+- FSM ensures valid transitions  
+- Main loop must remain non-blocking  
+- External pull-up defines active-low logic  
 - Queue size limits must be defined carefully
 
 ## Learning Outcomes
 - EXTI interrupt handling and timer-based debounce design
+- Timer-driven debounce and time-based event detection
 - Finite State Machine (FSM) implementation for input validation
 - Clear separation of state (behavior) vs event (trigger)
 - Event-driven system design with non-blocking execution
@@ -314,6 +372,7 @@ Main Loop\
 - Multi-click interaction modeling (short, long, double press)
 - Circular buffer (event queue) and producer–consumer pattern
 - Fair scheduling and back-pressure handling under system constraints
+- Scalable and deterministic embedded system design
 
 
 ## Author
