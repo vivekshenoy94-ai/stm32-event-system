@@ -333,21 +333,16 @@ stateDiagram-v2
 - Chunked event scheduling
 
 ## System Architecture
-EXTI → Edge Detection\
-      ↓\
-TIMER ISR → Time Tracking (button_tick)\
-      ↓\
-Button Driver (FSM)\
-      ↓\
-Event Generation\
-      ↓\
-Event Queue (Buffer)\
-      ↓\
-Application Layer (State Update)\
-      ↓\
-Output Layer (LED Execution)
 
-
+```mermaid
+flowchart TD
+    EXTI[EXTI Interrupt] --> FSM[Button FSM]
+    TIMER[Timer ISR - button_tick ] --> FSM
+    FSM --> EVENT[Event Generation]
+    EVENT --> QUEUE[Event Queue-Buffer]
+    QUEUE --> APP[Application Layer - State Update]
+    APP --> OUTPUT[LED Control]
+```
 ## System Flow
 *Button Press (PC13)*  
 → EXTI Interrupt Triggered  
@@ -397,10 +392,16 @@ Output Layer (LED Execution)
 - Scalable and deterministic embedded system design
 
 
+## Support
+
+If you found this useful:
+- ⭐ Star the repo
+- 🍴 Fork it
+- 🧠 Use it in your own projects
+
+#### It helps others discover this work!
+---
+
 ## Author
 Vivek Shenoy K\
 Embedded Software Architect
-
-
----
-
