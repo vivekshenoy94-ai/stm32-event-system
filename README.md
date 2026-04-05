@@ -1,5 +1,6 @@
 # STM32 Button Event System (Multi-Press Event Driven ,Timer Based FSM Architecture)
 
+### A production-style embedded system demonstrating *FSM-based input handling*, *event-driven architecture*, and *non-blocking multi-click detection* on STM32.
 ------------------------------------------------------------------------
 
 ## Overview
