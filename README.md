@@ -1,6 +1,6 @@
-# STM32 Button Event System (Multi-Press Event Driven ,Timer Based FSM Architecture)
+# STM32 Button Event System (Multi-Press Event Driven ,Timer Based FSM + RTOS Architecture)
 
-### A production-style embedded system demonstrating *FSM-based input handling*, *event-driven architecture*, and *non-blocking multi-click detection* on STM32.
+### A production-style embedded system demonstrating FSM-based input handling, event-driven architecture, RTOS integration, and non-blocking multi-click detection on STM32.
 ------------------------------------------------------------------------
 
 ## Overview
@@ -10,7 +10,8 @@ using:
 - External Interrupts (EXTI) for button detection  
 - Timer Interrupts for deterministic time tracking (debounce + duration)  
 - State Machine for structured control  
-- Event-driven logic for user interaction  
+- Event-driven logic for user interaction
+- FreeRTOS for task-based execution
 
 The system enforces a clear separation of:  
 *Detection → Timing → Validation → Event Generation → Event Buffering → Action Execution*
@@ -21,6 +22,8 @@ Additionally, the design introduces:
 - Event queue for decoupled processing  
 - Chunked event scheduling for fairness under load  
 - Timer-driven FSM for deterministic behavior
+- RTOS-based task scheduling (FreeRTOS)  
+- Standardized ISR-to-queue event dispatch mechanism
 
 ## Hardware Setup
 - Button → PC13 (EXTI Rising & Falling Edge)
@@ -242,7 +245,7 @@ control flow, and architectural clarity.
 - Enables scalable multi-button systems
 - Prepares system for RTOS integration
 
-### Version 7 — Simplified Timer-Driven FSM (Current)
+### Version 7 — Simplified Timer-Driven FSM 
 
 - Refactored FSM
 - Introduced simplified and explicit states:
@@ -315,6 +318,47 @@ stateDiagram-v2
 - Improved reliability under system load  
 - Production-style embedded architecture
 
+
+### Version 8 — RTOS-Based Event System Integration (Current)
+
+- Integrated FreeRTOS for task-based execution:
+  
+  - EventTask → Handles event processing  
+  - LEDTask → Handles output behavior  
+
+- Replaced custom queue with RTOS queue (xQueue):
+  
+  - Enables producer–consumer architecture  
+  - Supports blocking and efficient CPU utilization  
+
+- Introduced ISR-safe event dispatch:
+
+  - button_queue_event_from_isr()  
+  - Standardized event propagation from ISR to tasks  
+
+- Refactored event flow:
+
+  - ISR → Queue → EventTask → Application → Output  
+
+- Fixed event propagation gap:
+
+  - Ensured all event paths (including SINGLE_CLICK) are queued consistently  
+
+#### System Behavior
+
+- Events generated in driver layer are immediately queued from ISR  
+- EventTask blocks on queue and processes events on arrival  
+- LEDTask executes output behavior independently  
+- System remains responsive and non-blocking under load  
+
+#### Improvements
+
+- Decouples ISR from application logic using RTOS queue  
+- Eliminates missed event propagation issues  
+- Improves responsiveness via immediate task wake-up  
+- Enables scalable multi-task architecture  
+- Establishes production-style ISR-to-task communication pattern  
+- Aligns system with real-world RTOS-based firmware design
 ---
 ## Key Features
 - Interrupt-driven button handling (EXTI)
@@ -338,30 +382,38 @@ stateDiagram-v2
 ```mermaid
 flowchart TD
     EXTI[EXTI Interrupt] --> FSM[Button FSM]
-    TIMER[Timer ISR - button_tick ] --> FSM
+    TIMER[Timer ISR - button_tick] --> FSM
     FSM --> EVENT[Event Generation]
-    EVENT --> QUEUE[Event Queue-Buffer]
-    QUEUE --> APP[Application Layer - State Update]
-    APP --> OUTPUT[LED Control]
+    EVENT --> QUEUE[RTOS Queue xQueue]
+    QUEUE --> EVENT_TASK[Event Task]
+    EVENT_TASK --> APP[Application Layer]
+    APP --> LED_TASK[LED Task]
+    LED_TASK --> OUTPUT[LED Control]
 ```
 ## System Flow
-*Button Press (PC13)*  
-→ EXTI Interrupt Triggered  
-→ Transition to DEBOUNCING  
 
-*Timer Interrupt (TIM2)*  
+```md
+## System Flow
+Button Press (PC13)  
+→ EXTI Interrupt Triggered  
+→ FSM state transition  
+
+Timer Interrupt (TIM2)  
 → Updates debounce_time / press_time / release_time  
 
-*Main Loop*  
-→ button_process() validates state  
-→ Classifies event (SHORT / LONG / DOUBLE)  
-→ Push event to queue  
+Event Generation (Driver Layer)  
+→ Event classified (SHORT / LONG / DOUBLE)  
+→ button_queue_event_from_isr() pushes event to RTOS queue  
 
-*Application*  
-→ Processes queued events  
-→ Updates system state  
-→ Executes output behavior
+EventTask (RTOS)  
+→ Blocks on queue (xQueueReceive)  
+→ Processes incoming events  
+→ Updates application state  
 
+LEDTask (RTOS)  
+→ Executes output behavior  
+→ Maintains non-blocking LED control
+```
 ## Advantages
 - Deterministic and stable system behavior
 - Clean separation of detection, timing, validation, and action
@@ -371,14 +423,20 @@ flowchart TD
 - Scalable for multi-button and multi-event systems
 - Robust handling of edge cases and overflow conditions
 - Modular and extensible architecture for future enhancements
+- RTOS-based decoupling of execution and event handling
+- Immediate event-driven task wake-up (low latency)
+- Eliminates event propagation inconsistencies
+- Aligns with production-grade embedded system design patterns
 
 ## Considerations
-- ISR kept minimal (edge detection only)  
-- Timer defines system timing resolution  
-- FSM ensures valid transitions  
-- Main loop must remain non-blocking  
-- External pull-up defines active-low logic  
-- Queue size limits must be defined carefully
+- ISR kept minimal (edge detection only) to avoid blocking scheduler and ensure low interrupt latency  
+- Timer defines system timing resolution; all time-based logic depends on tick accuracy  
+- FSM ensures valid transitions and prevents invalid state behavior  
+- RTOS task priorities must be carefully configured to avoid starvation of lower priority tasks  
+- Blocking calls (e.g., xQueueReceive) must be used judiciously to balance responsiveness and periodic processing  
+- Queue size must be tuned to prevent overflow under burst inputs while minimizing memory usage  
+- Event propagation must be consistent across all paths (e.g., ISR → queue) to avoid silent failures  
+- Shared resources between ISR and tasks must be handled safely to avoid race conditions
 
 ## Learning Outcomes
 - EXTI interrupt handling and timer-based debounce design
@@ -391,6 +449,11 @@ flowchart TD
 - Circular buffer (event queue) and producer–consumer pattern
 - Fair scheduling and back-pressure handling under system constraints
 - Scalable and deterministic embedded system design
+- RTOS integration (FreeRTOS) in embedded systems
+- Task-based system design and scheduling
+- ISR-to-task communication using queues (xQueueSendFromISR)
+- Blocking vs non-blocking behavior in RTOS systems
+- Designing robust event propagation mechanisms
 
 
 ## Support
