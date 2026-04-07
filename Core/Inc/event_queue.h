@@ -24,5 +24,4 @@ void event_queue_init(void);
 uint8_t event_queue_push(app_event_t *event);
 uint8_t event_queue_pop(app_event_t *event);
 
-
 #endif /* INC_EVENT_QUEUE_H_ */

@@ -10,7 +10,9 @@
 
 #include "stm32f4xx_hal.h"
 #include "stm32f446xx.h"
-
+#include "FreeRTOS.h"
+#include "task.h"
+#include "queue.h"
 /* Defines different Button States */
 typedef enum{
 	BUTTON_IDLE,
@@ -48,4 +50,5 @@ void button_handle_release(button_t *btn);
 void button_process(button_t *btn);
 void button_tick(button_t *btn);
 ButtonEvent_t button_pop_event(button_t *btn);
+void button_queue_event_from_isr(ButtonEvent_t event);
 #endif /* INC_BUTTON_H_ */

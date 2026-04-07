@@ -10,6 +10,8 @@
 
 
 #define DEBOUNCE_THRESHOLD 2
+
+extern QueueHandle_t eventQueue;
 /************************************************************
   * @brief  Function to initialize the buttons
   *
@@ -62,6 +64,8 @@ void button_handle_press(button_t *btn)
  ***********************************************************/
 void button_handle_release(button_t *btn)
 {
+
+
 	switch(btn->state)
 	{
 	case BUTTON_FIRST_PRESS:
@@ -71,6 +75,7 @@ void button_handle_release(button_t *btn)
 		{
 			btn->event = EVENT_LONG_CLICK;
 			btn->state = BUTTON_IDLE;
+			button_queue_event_from_isr(btn->event);
 
 		}
 		else
@@ -96,11 +101,26 @@ void button_handle_release(button_t *btn)
 		}
 		btn->state = BUTTON_IDLE;
 		btn->press_time = 0;
+		button_queue_event_from_isr(btn->event);
+
 	default:
 		break;
 	}
 
 
+}
+/************************************************************/
+
+/************************************************************
+  * @brief Function to queue the events in RTOS queue
+  *
+  * @retval void
+ ***********************************************************/
+void button_queue_event_from_isr(ButtonEvent_t event)
+{
+	BaseType_t xHigherPrioirtyTaskWoken = pdFALSE;
+	xQueueSendFromISR(eventQueue,&event,&xHigherPrioirtyTaskWoken);
+	portYIELD_FROM_ISR(xHigherPrioirtyTaskWoken);
 }
 /************************************************************/
 
@@ -118,6 +138,7 @@ void button_process(button_t *btn)
 		btn->event = EVENT_SINGLE_CLICK;
 		btn->state = BUTTON_IDLE;
 		btn->release_time=0;
+		button_queue_event_from_isr(btn->event);
 	}
 
     /* Switch states are same after debounce time :
@@ -182,6 +203,7 @@ ButtonEvent_t button_pop_event(button_t *btn)
 	return Ret_event;
 }
 /************************************************************/
+
 /************************************************************
   * @brief Increment the respective counter based on the Button States
   *
