@@ -12,6 +12,7 @@
 #define DEBOUNCE_THRESHOLD 2
 
 extern QueueHandle_t eventQueue;
+static uint8_t debugOverflowCounter=0;
 /************************************************************
   * @brief  Function to initialize the buttons
   *
@@ -119,7 +120,12 @@ void button_handle_release(button_t *btn)
 void button_queue_event_from_isr(ButtonEvent_t event)
 {
 	BaseType_t xHigherPrioirtyTaskWoken = pdFALSE;
-	xQueueSendFromISR(eventQueue,&event,&xHigherPrioirtyTaskWoken);
+
+	if(xQueueSendFromISR(eventQueue,&event,&xHigherPrioirtyTaskWoken)!=pdTRUE)
+	{
+		/*Handle the debug Overflow Counter*/
+		debugOverflowCounter++;
+	}
 	portYIELD_FROM_ISR(xHigherPrioirtyTaskWoken);
 }
 /************************************************************/

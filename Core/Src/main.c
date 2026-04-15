@@ -151,6 +151,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 void EventTask(void* argument)
 {
 	ButtonEvent_t event;
+	TickType_t lastWakeTime = xTaskGetTickCount();
 
 	while(1)
 	{
@@ -161,10 +162,12 @@ void EventTask(void* argument)
 
 		}
 
-		if(xQueueReceive(eventQueue,&event,pdMS_TO_TICKS(10)))
+		while(xQueueReceive(eventQueue,&event,0)==pdTRUE)
 		{
 			app_process_events(event);
 		}
+
+		vTaskDelayUntil(&lastWakeTime,pdMS_TO_TICKS(10));
 	}
 }
 /************************************************************
@@ -175,10 +178,11 @@ void EventTask(void* argument)
 
 void LEDTask(void* argument)
 {
+	TickType_t lastWakeTime = xTaskGetTickCount();
 	while(1)
 	{
 		app_led_output();
-		vTaskDelay(pdMS_TO_TICKS(50));
+		vTaskDelayUntil(&lastWakeTime,pdMS_TO_TICKS(50));
 	}
 }
 
