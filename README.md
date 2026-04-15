@@ -1,4 +1,5 @@
-# STM32 Button Event System (Multi-Press Event Driven ,Timer Based FSM + RTOS Architecture)
+# STM32 Button Event System 
+## (Multi-Press Event Driven ,Timer Based FSM + RTOS Architecture)
 
 ### A production-style embedded system demonstrating FSM-based input handling, event-driven architecture, RTOS integration, and non-blocking multi-click detection on STM32.
 ------------------------------------------------------------------------
@@ -319,7 +320,7 @@ stateDiagram-v2
 - Production-style embedded architecture
 
 
-### Version 8 — RTOS-Based Event System Integration (Current)
+### Version 8 — RTOS-Based Event System Integration
 
 - Integrated FreeRTOS for task-based execution:
   
@@ -359,6 +360,41 @@ stateDiagram-v2
 - Enables scalable multi-task architecture  
 - Establishes production-style ISR-to-task communication pattern  
 - Aligns system with real-world RTOS-based firmware design
+
+
+### Version 9 — Deterministic Scheduling & Improved Event Processing
+
+- Refined EventTask execution model:
+  
+  - Replaced "vTaskDelay()" with "vTaskDelayUntil()"
+  - Ensures deterministic periodic execution independent of task runtime
+
+- Implemented queue draining mechanism:
+  
+  - EventTask processes all pending events per cycle
+  - Prevents backlog under burst input conditions
+  - Improves responsiveness and reduces event latency
+
+- Improved event handling consistency:
+  
+  - Ensured all event paths (including SINGLE_CLICK) are uniformly queued
+  - Eliminates inconsistencies between event generation paths
+
+- Enhanced ISR-to-task interaction:
+  
+  - Added overflow detection in "xQueueSendFromISR()"
+  - Introduced debug counter for monitoring event loss
+
+- Refined LED task behavior:
+  
+  - LEDTask now uses "vTaskDelayUntil()" for periodic toggling
+  - Ensures stable and jitter-free blinking behavior
+
+- Improved system timing model:
+  
+  - FSM evaluation decoupled from event arrival
+  - Time-based logic runs predictably regardless of queue state
+
 ---
 ## Key Features
 - Interrupt-driven button handling (EXTI)
@@ -377,6 +413,39 @@ stateDiagram-v2
 - Producer–consumer design
 - Chunked event scheduling
 
+---
+#### System Behavior
+
+- EventTask executes at fixed intervals and:
+  
+  - Drains queue completely
+  - Processes events in order
+  - Runs FSM evaluation consistently
+
+- Under burst inputs:
+  
+  - Events are processed efficiently without buildup
+  - System avoids queue overflow in normal operating conditions
+
+- LED behavior:
+  
+  - Maintains consistent blink frequency
+  - No drift or jitter under varying system load
+
+---
+
+#### Improvements
+
+- Ensures deterministic scheduling across tasks
+- Eliminates timing drift issues caused by relative delays
+- Improves system responsiveness under load
+- Reduces risk of queue overflow through faster draining
+- Provides better observability via overflow monitoring
+- Aligns system behavior with real-time system guarantees
+
+---
+
+
 ## System Architecture
 
 ```mermaid
@@ -394,24 +463,25 @@ flowchart TD
 
 ```md
 ## System Flow
-Button Press (PC13)  
-→ EXTI Interrupt Triggered  
-→ FSM state transition  
+Button Press (PC13)
+→ EXTI Interrupt Triggered
+→ FSM state transition
 
-Timer Interrupt (TIM2)  
-→ Updates debounce_time / press_time / release_time  
+Timer Interrupt (TIM2)
+→ Updates debounce_time / press_time / release_time
 
-Event Generation (Driver Layer)  
-→ Event classified (SHORT / LONG / DOUBLE)  
-→ button_queue_event_from_isr() pushes event to RTOS queue  
+Event Generation (Driver Layer)
+→ Event classified (SHORT / LONG / DOUBLE)
+→ button_queue_event_from_isr() pushes event to RTOS queue
 
-EventTask (RTOS)  
-→ Blocks on queue (xQueueReceive)  
-→ Processes incoming events  
-→ Updates application state  
+EventTask (RTOS)
+→ Periodically executes (vTaskDelayUntil)
+→ Drains queue (processes all pending events)
+→ Runs FSM evaluation
+→ Updates application state
 
-LEDTask (RTOS)  
-→ Executes output behavior  
+LEDTask (RTOS)
+→ Executes output behavior
 → Maintains non-blocking LED control
 ```
 ## Advantages
@@ -422,21 +492,20 @@ LEDTask (RTOS)
 - Non-blocking design ensuring responsive system execution
 - Scalable for multi-button and multi-event systems
 - Robust handling of edge cases and overflow conditions
-- Modular and extensible architecture for future enhancements
 - RTOS-based decoupling of execution and event handling
 - Immediate event-driven task wake-up (low latency)
-- Eliminates event propagation inconsistencies
+- Efficient queue draining prevents event backlog under burst load
 - Aligns with production-grade embedded system design patterns
 
 ## Considerations
 - ISR kept minimal (edge detection only) to avoid blocking scheduler and ensure low interrupt latency  
 - Timer defines system timing resolution; all time-based logic depends on tick accuracy  
-- FSM ensures valid transitions and prevents invalid state behavior  
 - RTOS task priorities must be carefully configured to avoid starvation of lower priority tasks  
-- Blocking calls (e.g., xQueueReceive) must be used judiciously to balance responsiveness and periodic processing  
 - Queue size must be tuned to prevent overflow under burst inputs while minimizing memory usage  
 - Event propagation must be consistent across all paths (e.g., ISR → queue) to avoid silent failures  
 - Shared resources between ISR and tasks must be handled safely to avoid race conditions
+- EventTask must drain queue fast enough to avoid overflow under load
+- Blocking calls must balance responsiveness and periodic execution
 
 ## Learning Outcomes
 - EXTI interrupt handling and timer-based debounce design
