@@ -24,7 +24,8 @@
 /* USER CODE BEGIN Includes */
 #include "button.h"
 #include "event_queue.h"
-
+#include "stdbool.h"
+#include "string.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -43,7 +44,7 @@ typedef enum{
 
 #define OUTPUT_GROUP  GPIOA
 #define LED           GPIO_PIN_5
-
+#define UART_BUFFER_SIZE 32
 #define NUM_BUTTON 2
 /* USER CODE END PD */
 
@@ -73,8 +74,20 @@ static LEDState_t  LEDState;
 static uint8_t toggle_once_flag=0;
 /* Variable to indicate the setting of LED toggle twice */
 static uint8_t toggle_twice_flag=0;
+/* Variable to indicate the setting of LED toggle twice */
+static uint8_t set_ON_flag = 0 ;
+/* Variable to indicate the setting of LED toggle twice */
+static uint8_t set_OFF_flag = 0 ;
 /* Queue that holds the events from the button based on FIFO */
 QueueHandle_t eventQueue;
+/* UART Buffer */
+char uartBuffer[UART_BUFFER_SIZE];
+/* UART Index */
+volatile uint8_t uartIndex = 0;
+/* UART Command Complete */
+volatile bool commandReady=false;
+/* Holds the UART Received Character */
+static char receivedChar;
 
 /* USER CODE END PV */
 
@@ -86,10 +99,9 @@ static void MX_TIM2_Init(void);
 void StartDefaultTask(void *argument);
 
 /* USER CODE BEGIN PFP */
-/*static void app_led_state_eval(void); old queue implementation*/
 static void app_led_output(void);
-/*static uint8_t app_queue_button_events(uint8_t index);old queue implementation*/
-static void app_process_events(ButtonEvent_t event);
+static void app_process_events(Event_t event);
+static Event_t parse_uart_command(char *cmd);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -140,31 +152,81 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 	}
 
 }
+
+/************************************************************
+  * @brief  UART Rx Transfer completed callbacks.
+  * @param  huart  Pointer to a UART_HandleTypeDef structure that contains
+  *                the configuration information for the specified UART module.
+  * @retval None
+  *
+  ***********************************************************/
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+{
+	    uint8_t ch = receivedChar;
+
+        //Command Completed
+        if((ch=='\n') || (ch=='\r'))
+        {
+        	if(uartIndex >0)
+        	{
+        		uartBuffer[uartIndex] = '\0';
+        		commandReady = true;
+        	}
+        	uartIndex=0;
+        }
+        else
+		{
+        	if(uartIndex<UART_BUFFER_SIZE-1)
+        	{
+        		uartBuffer[uartIndex++]=ch;
+        	}
+        	else
+        	{
+        		//Buffer Overflow -> reset
+        		uartIndex =0;
+        	}
+		}
+
+	    HAL_UART_Receive_IT(&huart2,(uint8_t*)&receivedChar,1);
+}
+
 /************************************************************ISR Driven:END************************************************************/
 /************************************************************RTOS Task Functions:BEGIN*************************************************/
 /************************************************************
-  * @brief  Event Task that performs button event processing by
+  * @brief  Event Task that performs button event and UART string processing by
   * enqueueing and dequeueing the events in order of FIFO
   *
   * @retval void
    ***********************************************************/
 void EventTask(void* argument)
 {
-	ButtonEvent_t event;
+	Event_t event;
 	TickType_t lastWakeTime = xTaskGetTickCount();
 
 	while(1)
 	{
-		for(int i =0;i<NUM_BUTTON;i++)
+        /* Send the UART string into the queue */
+		if(commandReady)
 		{
+			commandReady = false;
+			event = parse_uart_command(uartBuffer);
 
-			button_process(&button[i]);
-
+			if(event!=EVENT_NONE)
+			{
+				xQueueSend(eventQueue,&event,0);
+			}
 		}
 
 		while(xQueueReceive(eventQueue,&event,0)==pdTRUE)
 		{
 			app_process_events(event);
+		}
+
+		for(int i =0;i<NUM_BUTTON;i++)
+		{
+
+			button_process(&button[i]);
+
 		}
 
 		vTaskDelayUntil(&lastWakeTime,pdMS_TO_TICKS(10));
@@ -194,7 +256,7 @@ void LEDTask(void* argument)
  *         LONG CLICK : Keep the LED in BLINK state
  * @retval void
  ***********************************************************/
-static void app_process_events(ButtonEvent_t event)
+static void app_process_events(Event_t event)
 {
 
 		switch(event)
@@ -211,6 +273,24 @@ static void app_process_events(ButtonEvent_t event)
 			/*Toggle the LED twice with delay of 1s if its a double click*/
 		case EVENT_DOUBLE_CLICK:
 			toggle_twice_flag=1;
+			LEDState = LED_IDLE;
+			break;
+			/*Turn ON the LED based on the UART Command*/
+		case EVENT_UART_ON:
+			set_ON_flag = 1;
+			LEDState = LED_IDLE;
+			break;
+			/*Turn OFF the LED based on the UART Command*/
+		case EVENT_UART_OFF:
+			set_OFF_flag = 1;
+			LEDState = LED_IDLE;
+			break;
+			/*Turn Blink the LED based on the UART Command*/
+		case EVENT_UART_BLINK:
+			LEDState = LED_BLINK;
+			break;
+			/*STOP the LED based on the UART Command*/
+		case EVENT_UART_STOP:
 			LEDState = LED_IDLE;
 			break;
 			/*There is no event so do nothing*/
@@ -268,10 +348,47 @@ static void app_led_output()
 		}
 	}
 
-
+    /*Flag is set */
+	if(set_ON_flag)
+	{
+		HAL_GPIO_WritePin(OUTPUT_GROUP, LED, GPIO_PIN_SET);
+		set_ON_flag=0;
+	}
+	
+	/*Flag is set */
+	if(set_OFF_flag)
+	{
+		HAL_GPIO_WritePin(OUTPUT_GROUP, LED, GPIO_PIN_RESET);
+		set_OFF_flag=0;
+	}
 
 }
+/************************************************************
+ * @brief  Parses the UART Command
+ *         EVENT_UART_ON : Turn ON the LED
+ *         EVENT_UART_OFF : Turn OFF the LED
+ *         EVENT_UART_BLINK : Turn BLINK the LED
+ *         EVENT_UART_STOP : Turn STOP the LED
+ * @retval Event_t
+  ***********************************************************/
+Event_t parse_uart_command(char *cmd)
+{
 
+	if(strcmp(cmd,"ON")==0){
+		return EVENT_UART_ON;
+	}
+	if(strcmp(cmd,"OFF")==0){
+		return EVENT_UART_OFF;
+	}
+	if(strcmp(cmd,"BLINK")==0){
+		return EVENT_UART_BLINK;
+	}
+	if(strcmp(cmd,"STOP")==0){
+		return EVENT_UART_STOP;
+	}
+
+return EVENT_NONE;
+}
 /************************************************************RTOS Task Functions:END*************************************************/
 /* USER CODE END 0 */
 
@@ -305,6 +422,9 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_USART2_UART_Init();
+
+  HAL_UART_Receive_IT(&huart2,(uint8_t*)&receivedChar,1);
+
   MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
 
@@ -333,12 +453,12 @@ int main(void)
   /* USER CODE END RTOS_TIMERS */
 
   /* USER CODE BEGIN RTOS_QUEUES */
-  eventQueue = xQueueCreate(10,sizeof(ButtonEvent_t));
+  eventQueue = xQueueCreate(10,sizeof(Event_t));
   /* USER CODE END RTOS_QUEUES */
 
   /* Create the thread(s) */
   /* creation of defaultTask */
-  //defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
+  defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
   xTaskCreate(EventTask,"EventTask",128,NULL,2,NULL);
@@ -350,12 +470,14 @@ int main(void)
   /* USER CODE END RTOS_EVENTS */
 
   /* Start scheduler */
-  vTaskStartScheduler();
+  osKernelStart();
 
   /* We should never get here as control is now taken by the scheduler */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+
+
   while (1)
   {
     /* USER CODE END WHILE */

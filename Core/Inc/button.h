@@ -23,20 +23,25 @@ typedef enum{
 	BUTTON_SECOND_PRESS
 } ButtonState_t;
 
-/* Defines different Button Events */
+/* Defines different Button and UART Events */
 typedef enum{
 	EVENT_NONE,
 	EVENT_SINGLE_CLICK,
 	EVENT_DOUBLE_CLICK,
-	EVENT_LONG_CLICK
-} ButtonEvent_t;
+	EVENT_LONG_CLICK,
+
+	EVENT_UART_ON,
+	EVENT_UART_OFF,
+	EVENT_UART_BLINK,
+	EVENT_UART_STOP
+} Event_t;
 
 /* Defines different Button properties */
 typedef struct{
 	GPIO_TypeDef *port;
 	uint16_t pin;
 	ButtonState_t state;
-	ButtonEvent_t event;
+	Event_t event;
     uint16_t debounce_time;
 	uint16_t press_time;
 	uint16_t release_time;
@@ -49,6 +54,6 @@ void button_handle_press(button_t *btn);
 void button_handle_release(button_t *btn);
 void button_process(button_t *btn);
 void button_tick(button_t *btn);
-ButtonEvent_t button_pop_event(button_t *btn);
-void button_queue_event_from_isr(ButtonEvent_t event);
+Event_t button_pop_event(button_t *btn);
+void button_queue_event_from_isr(Event_t event);
 #endif /* INC_BUTTON_H_ */

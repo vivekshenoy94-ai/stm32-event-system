@@ -117,7 +117,7 @@ void button_handle_release(button_t *btn)
   *
   * @retval void
  ***********************************************************/
-void button_queue_event_from_isr(ButtonEvent_t event)
+void button_queue_event_from_isr(Event_t event)
 {
 	BaseType_t xHigherPrioirtyTaskWoken = pdFALSE;
 
@@ -202,9 +202,9 @@ void button_process(button_t *btn)
   *
   * @retval Provides the Event
  ***********************************************************/
-ButtonEvent_t button_pop_event(button_t *btn)
+Event_t button_pop_event(button_t *btn)
 {
-	ButtonEvent_t Ret_event=btn->event;
+	Event_t Ret_event=btn->event;
 	btn->event = EVENT_NONE;
 	return Ret_event;
 }
