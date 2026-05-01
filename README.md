@@ -1,7 +1,7 @@
 # STM32 Button Event System 
-## (Multi-Press Event Driven ,Timer Based FSM + RTOS Architecture)
+## (Multi-Press Event & UART Command Driven ,Timer Based FSM + RTOS Architecture)
 
-### A production-style embedded system demonstrating FSM-based input handling, event-driven architecture, RTOS integration, and non-blocking multi-click detection on STM32.
+### A production-style embedded system demonstrating FSM-based input handling, event-driven architecture, RTOS integration, asynchronous UART communication, and non-blocking multi-click detection on STM32.
 ------------------------------------------------------------------------
 
 ## Overview
@@ -13,6 +13,8 @@ using:
 - State Machine for structured control  
 - Event-driven logic for user interaction
 - FreeRTOS for task-based execution
+- Interrupt-driven UART communication
+- Asynchronous command buffering and processing
 
 The system enforces a clear separation of:  
 *Detection → Timing → Validation → Event Generation → Event Buffering → Action Execution*
@@ -25,16 +27,23 @@ Additionally, the design introduces:
 - Timer-driven FSM for deterministic behavior
 - RTOS-based task scheduling (FreeRTOS)  
 - Standardized ISR-to-queue event dispatch mechanism
+- Interrupt-driven UART RX architecture
+- UART command buffering and asynchronous command processing
 
 ## Hardware Setup
+- MCU → STM32F446RE
 - Button → PC13 (EXTI Rising & Falling Edge)
   - External pull-up configuration:
      - Idle state → HIGH  
      - Button Press → LOW (Falling Edge)  
      - Button Release → HIGH (Rising Edge)  
 - LED → PA5 (Output)  
-- Timer → TIM2 (~20 ms debounce)  
-- MCU → STM32F446RE
+- Timer → TIM2 (~20 ms debounce)
+- UART	USART2
+- UART TX	PA2
+- UART RX	PA3
+- UART Interface	ST-Link Virtual COM Port 
+
 
 ## System Evolution
 
@@ -395,25 +404,6 @@ stateDiagram-v2
   - FSM evaluation decoupled from event arrival
   - Time-based logic runs predictably regardless of queue state
 
----
-## Key Features
-- Interrupt-driven button handling (EXTI)
-- Timer-driven debounce and timing model
-- State machine-based signal validation
-- Event-driven architecture
-- Clean separation of ISR and main loop
-- Short press detection  
-- Long press detection (> 2 seconds)  
-- Double click detection (< 1 second window)  
-- Multi-stage FSM handling  
-- Non-blocking LED behavior
-- Deterministic and stable behavior
-- Scalable multi-button design
-- Event queue buffering
-- Producer–consumer design
-- Chunked event scheduling
-
----
 #### System Behavior
 
 - EventTask executes at fixed intervals and:
@@ -432,7 +422,7 @@ stateDiagram-v2
   - Maintains consistent blink frequency
   - No drift or jitter under varying system load
 
----
+
 
 #### Improvements
 
@@ -444,8 +434,68 @@ stateDiagram-v2
 - Aligns system behavior with real-time system guarantees
 
 ---
+### Version 10 — Interrupt-Driven UART Command System
 
+- Integrated asynchronous UART communication using USART2
 
+- Added interrupt-driven UART reception:
+  
+  - Uses HAL_UART_Receive_IT() for asynchronous byte reception
+  - Uses HAL_UART_RxCpltCallback() for RX completion handling
+
+- Implemented UART RX re-arming mechanism:
+  
+  - UART reception continuously re-armed after each received byte
+
+- Added UART command buffering:
+  
+  - Incoming characters buffered into uartBuffer
+  - Supports command accumulation across multiple interrupts
+
+- Added command termination handling:
+  
+  - \r and \n used as command delimiters
+
+- Added UART buffer overflow protection:
+  
+  - Prevents invalid memory overwrite for oversized commands
+
+- Refactored UART architecture:
+  
+  - ISR responsible only for byte collection
+  - Command processing deferred to application/task layer
+
+- Added RTOS-safe UART initialization flow:
+  
+  - UART RX interrupt armed before scheduler start
+
+#### System Behavior
+
+- UART receives characters asynchronously through interrupts
+
+- Each received byte triggers:
+  
+  - USART2 interrupt
+  - RX callback execution
+  - Character buffering into uartBuffer
+
+- On command completion (\r or \n):
+  
+  - Command is null terminated
+  - commandReady flag raised for processing
+
+- UART reception remains active through continuous RX re-arming
+
+#### Improvements
+
+- Non-blocking asynchronous UART reception
+- Minimal ISR execution for low interrupt latency
+- Decouples communication handling from application logic
+- Establishes foundation for command-driven firmware control
+- Enables scalable UART parser/task integration
+- Aligns UART flow with production-style embedded firmware architecture
+
+---
 ## System Architecture
 
 ```mermaid
@@ -458,6 +508,10 @@ flowchart TD
     EVENT_TASK --> APP[Application Layer]
     APP --> LED_TASK[LED Task]
     LED_TASK --> OUTPUT[LED Control]
+    UART[USART2 RX Interrupt] --> UART_ISR[UART RX Callback]
+    UART_ISR --> UART_BUFFER[Command Buffer]
+    UART_BUFFER --> UART_TASK[UART Command Task]
+    UART_TASK --> APP
 ```
 ## System Flow
 
@@ -483,7 +537,38 @@ EventTask (RTOS)
 LEDTask (RTOS)
 → Executes output behavior
 → Maintains non-blocking LED control
+
+UART RX Interrupt
+→ HAL_UART_RxCpltCallback execution
+→ Character buffering into uartBuffer
+→ UART RX re-armed
+
+Command Completion
+→ Detect '\r' or '\n'
+→ commandReady flag raised
+→ Command processed in application/task layer
+
 ```
+## Key Features
+- Interrupt-driven button handling (EXTI)
+- Timer-driven debounce and timing model
+- State machine-based signal validation
+- Event-driven architecture
+- Clean separation of ISR and main loop
+- Short press detection  
+- Long press detection (> 2 seconds)  
+- Double click detection (< 1 second window)  
+- Multi-stage FSM handling  
+- Non-blocking LED behavior
+- Deterministic and stable behavior
+- Scalable multi-button design
+- Event queue buffering
+- Producer–consumer design
+- Chunked event scheduling
+- Interrupt-driven UART RX
+- UART command buffering
+- Asynchronous UART command handling
+---
 ## Advantages
 - Deterministic and stable system behavior
 - Clean separation of detection, timing, validation, and action
@@ -506,6 +591,8 @@ LEDTask (RTOS)
 - Shared resources between ISR and tasks must be handled safely to avoid race conditions
 - EventTask must drain queue fast enough to avoid overflow under load
 - Blocking calls must balance responsiveness and periodic execution
+- UART RX APIs are one-shot and require re-arming after receive completion
+- Blocking APIs should not execute inside ISR
 
 ## Learning Outcomes
 - EXTI interrupt handling and timer-based debounce design
@@ -523,6 +610,10 @@ LEDTask (RTOS)
 - ISR-to-task communication using queues (xQueueSendFromISR)
 - Blocking vs non-blocking behavior in RTOS systems
 - Designing robust event propagation mechanisms
+- Interrupt-driven UART communication
+- UART RX interrupt lifecycle and re-arming mechanism
+- UART command buffering and asynchronous processing
+- UART ISR-to-task communication design
 
 
 ## Support
