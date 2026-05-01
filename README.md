@@ -1,4 +1,4 @@
-# STM32 Button Event System 
+# STM32 Event System 
 ## (Multi-Press Event & UART Command Driven ,Timer Based FSM + RTOS Architecture)
 
 ### A production-style embedded system demonstrating FSM-based input handling, event-driven architecture, RTOS integration, asynchronous UART communication, and non-blocking multi-click detection on STM32.
